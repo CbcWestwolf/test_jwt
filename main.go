@@ -2,24 +2,27 @@ package main
 
 import (
 	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
+	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt/v4"
 	"io"
 	"log"
 	"os"
+
+	"github.com/golang-jwt/jwt/v4"
+)
+
+var (
+	publicKeyPath  = "ssl_key/rsa_public_key.pem"
+	privateKeyPath = "ssl_key/rsa_private_key.pem"
 )
 
 func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, err error) {
 	var (
 		file      *os.File
 		readBytes []byte
-		pub       any
-		ok        bool
 	)
 
-	file, err = os.Open("ssl_key/rsa_private_key.pem")
+	file, err = os.Open(privateKeyPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -27,12 +30,12 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	block, _ := pem.Decode(readBytes)
-	if priKey, err = x509.ParsePKCS1PrivateKey(block.Bytes); err != nil {
-		return nil, nil, err
+	if priKey, err = jwt.ParseRSAPrivateKeyFromPEM(readBytes); err != nil {
+		log.Println(err.Error())
+		log.Fatal("Error in parsing private key")
 	}
 
-	file, err = os.Open("ssl_key/rsa_public_key.pem")
+	file, err = os.Open(publicKeyPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,15 +43,26 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	block, _ = pem.Decode(readBytes)
-	if pub, err = x509.ParsePKIXPublicKey(block.Bytes); err != nil {
-		return nil, nil, err
-	}
-	if pubKey, ok = pub.(*rsa.PublicKey); !ok {
-		log.Fatal("No available public key")
+	if pubKey, err = jwt.ParseRSAPublicKeyFromPEM(readBytes); err != nil {
+		log.Println(err.Error())
+		log.Fatal("Error in parsing public key")
 	}
 
 	return
+}
+
+func isTokenValid(token *jwt.Token, err error) bool {
+	if token.Valid {
+		return true
+	} else if errors.Is(err, jwt.ErrTokenMalformed) {
+		log.Print("That's not even a token")
+	} else if errors.Is(err, jwt.ErrTokenExpired) || errors.Is(err, jwt.ErrTokenNotValidYet) {
+		// Token is either expired or not active yet
+		log.Print("Timing is everything")
+	} else {
+		log.Print("Couldn't handle this token:", err)
+	}
+	return false
 }
 
 func main() {
@@ -58,6 +72,7 @@ func main() {
 		pubKey    *rsa.PublicKey
 		err       error
 		signature string
+		//jwToken   string
 	)
 
 	// load the pubKey and priKey
@@ -75,14 +90,23 @@ func main() {
 	fmt.Println("signature", signature)
 
 	if err = jwt.SigningMethodRS256.Verify(signningString, signature, pubKey); err != nil {
-		log.Fatal(err.Error())
+		log.Fatal("Verify", err.Error())
 	}
-
-	fmt.Println("Success")
 
 	//// 2. sign and verify a JWT
 	//token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 	//	"foo": "bar",
 	//	"nbf": time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
 	//})
+	//if jwToken, err = token.SignedString(priKey); err != nil {
+	//	log.Fatal("SignedString", err.Error())
+	//}
+	//fmt.Println("jwToken", jwToken)
+	//fmt.Println("valid", token.Valid)
+	//if tempToken, err := jwt.Parse
+	//if err = jwt.SigningMethodRS256.Verify(jwToken, token.Signature, pubKey); err != nil {
+	//	log.Fatal("Verify", err.Error())
+	//}
+
+	fmt.Println("Success")
 }
