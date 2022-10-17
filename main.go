@@ -9,12 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MicahParks/keyfunc"
 	"github.com/golang-jwt/jwt/v4"
 )
 
 var (
 	publicKeyPath  = "ssl_key/rsa_public_key.pem"
 	privateKeyPath = "ssl_key/rsa_private_key.pem"
+	keyID          = "the-key-id"
 	priKey         *rsa.PrivateKey
 	pubKey         *rsa.PublicKey
 )
@@ -84,6 +86,7 @@ func main() {
 		"foo": "bar",
 		"nbf": time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
 	})
+	token.Header["kid"] = keyID
 	if tokenString, err = token.SignedString(priKey); err != nil {
 		log.Fatal("SignedString", err.Error())
 	}
@@ -105,6 +108,18 @@ func main() {
 	if err = jwt.SigningMethodRS256.Verify(strings.Join(parts[:2], "."), token.Signature, pubKey); err != nil {
 		log.Fatal("Verify", err.Error())
 	}
+
+	// 3. verify a JWT using JWKS with kid
+	jwks := keyfunc.NewGiven(map[string]keyfunc.GivenKey{
+		keyID: keyfunc.NewGivenRSA(pubKey),
+	})
+	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
+		log.Fatal("Fail to parse tokenString", tokenString)
+	}
+	if !token.Valid {
+		log.Fatal("Should be valid")
+	}
+	fmt.Println(token.Header, token.Claims)
 
 	fmt.Println("Success")
 }
