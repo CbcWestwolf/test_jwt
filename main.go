@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rsa"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -11,12 +12,14 @@ import (
 
 	"github.com/MicahParks/keyfunc"
 	"github.com/golang-jwt/jwt/v4"
+	jwkRepo "github.com/lestrrat-go/jwx/jwk"
 )
 
 var (
 	publicKeyPath  = "ssl_key/rsa_public_key.pem"
 	privateKeyPath = "ssl_key/rsa_private_key.pem"
 	keyID          = "the-key-id"
+	issuer         = "<issuer-abc>"
 	priKey         *rsa.PrivateKey
 	pubKey         *rsa.PublicKey
 )
@@ -64,7 +67,7 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	return
 }
 
-func main() {
+func Main() {
 	signningString := "this is the sample secret"
 	var (
 		err         error
@@ -122,4 +125,51 @@ func main() {
 	fmt.Println(token.Header, token.Claims)
 
 	fmt.Println("Success")
+}
+
+func mainGenerateJWTandJWKS() {
+	var (
+		err         error
+		tokenString string
+		jwk         jwkRepo.Key
+	)
+
+	// 1. generate and sign JWT
+	iat := time.Now().Unix()
+	exp := time.Date(2032, 12, 30, 6, 6, 6, 6, time.UTC).Unix()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub":   "chenbochuan@pingcap.com",
+		"email": "chenbochuan@pingcap.com",
+		"iat":   iat,
+		"exp":   exp,
+		"iss":   issuer,
+	})
+	token.Header["kid"] = keyID
+	if tokenString, err = token.SignedString(priKey); err != nil {
+		log.Fatal("SignedString", err.Error())
+	}
+	if token.Valid {
+		log.Fatal("Should be invalid")
+	}
+	fmt.Println(tokenString)
+
+	// 2. generate JWKS from pubKey
+	if jwk, err = jwkRepo.New(pubKey); err != nil {
+		log.Fatal("Error when creating a jwk from pubKey")
+	}
+	if err = jwk.Set(jwkRepo.KeyIDKey, keyID); err != nil {
+		log.Fatal("Error when setting kid")
+	}
+	jwks := jwkRepo.NewSet()
+	if ok := jwks.Add(jwk); !ok {
+		log.Fatal("jwk already exists in jwks")
+	}
+	if cont, err := jwks.(json.Marshaler).MarshalJSON(); err != nil {
+		log.Fatal("Error when marchaler")
+	} else {
+		// use
+		// 	echo '<jwks>' | jq .
+		// to format
+		fmt.Println(string(cont))
+	}
 }
