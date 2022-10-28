@@ -175,3 +175,52 @@ func mainGenerateJWTandJWKS() {
 		fmt.Println(string(cont))
 	}
 }
+
+// main checks the JWT using the JWKS from local files
+func main() {
+	var (
+		rawJWT, rawJWKS []byte
+		err             error
+		tokenString     string
+		jwks            *keyfunc.JWKS
+		token           *jwt.Token
+		publicKey       interface{}
+	)
+
+	// 1. get jwt
+	if rawJWT, err = os.ReadFile("ssl_key/JWT.txt"); err != nil {
+		log.Fatal("Error when open jwt file")
+	}
+	tokenString = string(rawJWT)
+
+	// 2. load jwks
+	if rawJWKS, err = os.ReadFile("ssl_key/JWKS.json"); err != nil {
+		log.Fatal("Error when open jwks file")
+	}
+	if jwks, err = keyfunc.NewJSON(rawJWKS); err != nil {
+		log.Fatal("Error when load jwks")
+	}
+
+	// 3. verify signature
+	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
+		log.Fatal("Error when parse jwt")
+	}
+	if publicKey, err = jwks.Keyfunc(token); err != nil {
+		log.Fatal("Error when matching jwk")
+	}
+	fmt.Println(token.Claims)
+
+	// 4. get jwt whois signature is wrong
+	if rawJWT, err = os.ReadFile("ssl_key/wrongJWT.txt"); err != nil {
+		log.Fatal("Error when open jwt file")
+	}
+	tokenString = string(rawJWT)
+
+	// 5. fail to verify signature
+	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
+		log.Fatal("Error when parse the wrong jwt")
+	}
+	if publicKey, err = jwks.Keyfunc(token); err != nil {
+		log.Fatal("Error when matching jwk")
+	}
+}
