@@ -67,7 +67,8 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	return
 }
 
-func Main() {
+// mainTry examines some usages
+func mainTry() {
 	signningString := "this is the sample secret"
 	var (
 		err         error
@@ -127,6 +128,7 @@ func Main() {
 	fmt.Println("Success")
 }
 
+// mainGenerateJWTandJWKS generates and prints generated JWT (as a string) and JWKS (as a json)
 func mainGenerateJWTandJWKS() {
 	var (
 		err         error
