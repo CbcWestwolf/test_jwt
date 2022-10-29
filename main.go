@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/MicahParks/keyfunc"
-	"github.com/golang-jwt/jwt/v4"
-	jwkRepo "github.com/lestrrat-go/jwx/jwk"
+	jwtv4 "github.com/golang-jwt/jwt/v4"
+	jwaRepo "github.com/lestrrat-go/jwx/v2/jwa"
+	jwkRepo "github.com/lestrrat-go/jwx/v2/jwk"
+	jwsRepo "github.com/lestrrat-go/jwx/v2/jws"
+	jwtRepo "github.com/lestrrat-go/jwx/v2/jwt"
 )
 
 var (
@@ -46,7 +49,7 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	if priKey, err = jwt.ParseRSAPrivateKeyFromPEM(readBytes); err != nil {
+	if priKey, err = jwtv4.ParseRSAPrivateKeyFromPEM(readBytes); err != nil {
 		log.Println(err.Error())
 		log.Fatal("Error in parsing private key")
 	}
@@ -59,7 +62,7 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	if pubKey, err = jwt.ParseRSAPublicKeyFromPEM(readBytes); err != nil {
+	if pubKey, err = jwtv4.ParseRSAPublicKeyFromPEM(readBytes); err != nil {
 		log.Println(err.Error())
 		log.Fatal("Error in parsing public key")
 	}
@@ -78,15 +81,15 @@ func mainTry() {
 
 	// 1. sign and verify a string
 	// Sign and get the complete encoded token as a string using the secret
-	if signature, err = jwt.SigningMethodRS256.Sign(signningString, priKey); err != nil {
+	if signature, err = jwtv4.SigningMethodRS256.Sign(signningString, priKey); err != nil {
 		log.Fatal(err.Error())
 	}
-	if err = jwt.SigningMethodRS256.Verify(signningString, signature, pubKey); err != nil {
+	if err = jwtv4.SigningMethodRS256.Verify(signningString, signature, pubKey); err != nil {
 		log.Fatal("Verify", err.Error())
 	}
 
 	// 2. sign and verify a JWT
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	token := jwtv4.NewWithClaims(jwtv4.SigningMethodRS256, jwtv4.MapClaims{
 		"foo": "bar",
 		"nbf": time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
 	})
@@ -97,8 +100,8 @@ func mainTry() {
 	if token.Valid {
 		log.Fatal("Should be invalid")
 	}
-	token, err = jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+	token, err = jwtv4.Parse(tokenString, func(token *jwtv4.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwtv4.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 		// TODO: validate the token.Header and token.Claims here
@@ -109,7 +112,7 @@ func mainTry() {
 	}
 	parts := strings.SplitN(tokenString, ".", 3)
 	// The 3rd part (signature) should not be passed into the signingString
-	if err = jwt.SigningMethodRS256.Verify(strings.Join(parts[:2], "."), token.Signature, pubKey); err != nil {
+	if err = jwtv4.SigningMethodRS256.Verify(strings.Join(parts[:2], "."), token.Signature, pubKey); err != nil {
 		log.Fatal("Verify", err.Error())
 	}
 
@@ -117,7 +120,7 @@ func mainTry() {
 	jwks := keyfunc.NewGiven(map[string]keyfunc.GivenKey{
 		keyID: keyfunc.NewGivenRSA(pubKey),
 	})
-	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
+	if token, err = jwtv4.Parse(tokenString, jwks.Keyfunc); err != nil {
 		log.Fatal("Fail to parse tokenString", tokenString)
 	}
 	if !token.Valid {
@@ -131,96 +134,121 @@ func mainTry() {
 // mainGenerateJWTandJWKS generates and prints generated JWT (as a string) and JWKS (as a json)
 func mainGenerateJWTandJWKS() {
 	var (
-		err         error
-		tokenString string
-		jwk         jwkRepo.Key
+		err     error
+		key     jwkRepo.Key
+		rawJSON []byte
+		iat     = time.Now().Unix()
+		exp     = time.Date(2032, 12, 30, 6, 6, 6, 6, time.UTC).Unix()
+		email   = "chenbochuan@pingcap.com"
 	)
 
 	// 1. generate and sign JWT
-	iat := time.Now().Unix()
-	exp := time.Date(2032, 12, 30, 6, 6, 6, 6, time.UTC).Unix()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"sub":   "chenbochuan@pingcap.com",
-		"email": "chenbochuan@pingcap.com",
-		"iat":   iat,
-		"exp":   exp,
-		"iss":   issuer,
-	})
-	token.Header["kid"] = keyID
-	if tokenString, err = token.SignedString(priKey); err != nil {
-		log.Fatal("SignedString", err.Error())
+	jwt := jwtRepo.New()
+	claims := []struct {
+		name  string
+		value interface{}
+	}{
+		{jwtRepo.SubjectKey, email},
+		{"email", email},
+		{jwtRepo.IssuedAtKey, iat},
+		{jwtRepo.ExpirationKey, exp},
+		{jwtRepo.IssuerKey, issuer},
 	}
-	if token.Valid {
-		log.Fatal("Should be invalid")
+	for _, claim := range claims {
+		if err = jwt.Set(claim.name, claim.value); err != nil {
+			log.Println(claim.name, claim.value)
+			log.Fatal("Error when set claim")
+		}
 	}
-	fmt.Println(tokenString)
+	header := jwsRepo.NewHeaders()
+	headers := []struct {
+		name  string
+		value interface{}
+	}{
+
+		{jwsRepo.AlgorithmKey, jwaRepo.RS256},
+		{jwsRepo.KeyIDKey, keyID},
+		{jwsRepo.TypeKey, "JWT"},
+	}
+	for _, h := range headers {
+		if err = header.Set(h.name, h.value); err != nil {
+			log.Println(h.name, h.value)
+			log.Fatal("Error when set header")
+		}
+	}
+	if signature, err := jwtRepo.Sign(jwt, jwtRepo.WithKey(jwaRepo.RS256, priKey, jwsRepo.WithProtectedHeaders(header))); err != nil {
+		log.Println(err)
+		log.Fatal("Error when sign")
+	} else {
+		fmt.Println(string(signature))
+	}
 
 	// 2. generate JWKS from pubKey
-	if jwk, err = jwkRepo.New(pubKey); err != nil {
-		log.Fatal("Error when creating a jwk from pubKey")
+
+	if key, err = jwkRepo.FromRaw(pubKey); err != nil {
+		log.Fatal("Error when generate key")
 	}
-	if err = jwk.Set(jwkRepo.KeyIDKey, keyID); err != nil {
-		log.Fatal("Error when setting kid")
+	if err = key.Set(jwkRepo.KeyIDKey, keyID); err != nil {
+		log.Println(err)
+		log.Fatal("Error when set key id")
 	}
 	jwks := jwkRepo.NewSet()
-	if ok := jwks.Add(jwk); !ok {
-		log.Fatal("jwk already exists in jwks")
+	jwks.AddKey(key)
+	if rawJSON, err = jwks.(json.Marshaler).MarshalJSON(); err != nil {
+		log.Fatal("Error when marshaler json")
 	}
-	if cont, err := jwks.(json.Marshaler).MarshalJSON(); err != nil {
-		log.Fatal("Error when marchaler")
-	} else {
-		// use
-		// 	echo '<jwks>' | jq .
-		// to format
-		fmt.Println(string(cont))
-	}
+	// use
+	// 	echo '<jwks>' | jq .
+	// to format
+	fmt.Println(string(rawJSON))
 }
 
 // main checks the JWT using the JWKS from local files
-func main() {
-	var (
-		rawJWT, rawJWKS []byte
-		err             error
-		tokenString     string
-		jwks            *keyfunc.JWKS
-		token           *jwt.Token
-		publicKey       interface{}
-	)
-
-	// 1. get jwt
-	if rawJWT, err = os.ReadFile("ssl_key/JWT.txt"); err != nil {
-		log.Fatal("Error when open jwt file")
-	}
-	tokenString = string(rawJWT)
-
-	// 2. load jwks
-	if rawJWKS, err = os.ReadFile("ssl_key/JWKS.json"); err != nil {
-		log.Fatal("Error when open jwks file")
-	}
-	if jwks, err = keyfunc.NewJSON(rawJWKS); err != nil {
-		log.Fatal("Error when load jwks")
-	}
-
-	// 3. verify signature
-	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
-		log.Fatal("Error when parse jwt")
-	}
-	if publicKey, err = jwks.Keyfunc(token); err != nil {
-		log.Fatal("Error when matching jwk")
-	}
-	fmt.Println(token.Claims)
-
-	// 4. get jwt whois signature is wrong
-	if rawJWT, err = os.ReadFile("ssl_key/wrongJWT.txt"); err != nil {
-		log.Fatal("Error when open jwt file")
-	}
-	tokenString = string(rawJWT)
-
-	// 5. fail to verify signature
-	if token, err = jwt.Parse(tokenString, jwks.Keyfunc); err != nil {
-		log.Fatal("Error when parse the wrong jwt")
-	}
-	if publicKey, err = jwks.Keyfunc(token); err != nil {
-		log.Fatal("Error when matching jwk")
-	}
-}
+//func TODO() {
+//	var (
+//		rawJWT, rawJWKS []byte
+//		err             error
+//		tokenString     string
+//		jwks            jwkRepo.Set
+//	)
+//
+//	// 1. get jwt
+//	if rawJWT, err = os.ReadFile("ssl_key/JWT.txt"); err != nil {
+//		log.Fatal("Error when open jwt file")
+//	}
+//	tokenString = string(rawJWT)
+//	//parts := strings.SplitN(tokenString, ".", 3)
+//
+//	// 2. load jwks
+//	if rawJWKS, err = os.ReadFile("ssl_key/JWKS.json"); err != nil {
+//		log.Fatal("Error when open jwks file")
+//	}
+//	jwks = jwkRepo.NewSet()
+//	if err = jwks.(json.Unmarshaler).UnmarshalJSON(rawJWKS); err != nil {
+//		log.Fatal("Error when unmarshal jwks")
+//	}
+//	fmt.Println(jwks.Len())
+//	if key, ok := jwks.Get(0); !ok {
+//		log.Fatal("No key")
+//	} else {
+//		fmt.Println(key.KeyID())
+//		fmt.Println(key.Algorithm())
+//	}
+//
+//	// 3. verify signature
+//	if verified, err := jwsRepo.VerifySet(([]byte)(tokenString), jwks); err != nil {
+//		log.Println(err.Error())
+//		log.Fatal("Error when verify")
+//	} else {
+//		fmt.Println(string(verified))
+//	}
+//
+//	// 4. get jwt whois signature is wrong
+//	//if rawJWT, err = os.ReadFile("ssl_key/wrongJWT.txt"); err != nil {
+//	//	log.Fatal("Error when open jwt file")
+//	//}
+//	//tokenString = string(rawJWT)
+//
+//	// 5. fail to verify signature
+//
+//}
