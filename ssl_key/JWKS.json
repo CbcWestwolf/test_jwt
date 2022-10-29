@@ -1,6 +1,8 @@
 {
   "keys": [
     {
+      "alg": "RS256",
+      "use": "sig",
       "e": "AQAB",
       "kid": "the-key-id",
       "kty": "RSA",
