@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
@@ -177,11 +178,25 @@ func main() {
 	}
 
 	// 3. verify signature
-	if verified, err := jwsRepo.Verify(([]byte)(tokenString), jwsRepo.WithKeySet(jwks)); err != nil {
+	if verifiedPayload, err := jwsRepo.Verify(([]byte)(tokenString), jwsRepo.WithKeySet(jwks)); err != nil {
 		log.Println(err.Error())
 		log.Fatal("Error when verify")
 	} else {
-		fmt.Println(string(verified))
+		fmt.Println(string(verifiedPayload))
+		jwt := jwtRepo.New()
+		err = jwt.(json.Unmarshaler).UnmarshalJSON(verifiedPayload)
+		if err != nil {
+			log.Println(err.Error())
+			log.Fatal("Error when UnmarshalJSON")
+		}
+		if m, err := jwt.AsMap(context.Background()); err != nil {
+			log.Println(err.Error())
+			log.Fatal("Error when AsMap")
+		} else {
+			for k, v := range m {
+				fmt.Println(k, v)
+			}
+		}
 	}
 
 	// 4. get jwt whois signature is wrong
