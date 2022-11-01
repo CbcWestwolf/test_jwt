@@ -10,7 +10,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/golang-jwt/jwt/v4"
 	jwaRepo "github.com/lestrrat-go/jwx/v2/jwa"
 	jwkRepo "github.com/lestrrat-go/jwx/v2/jwk"
 	jwsRepo "github.com/lestrrat-go/jwx/v2/jws"
@@ -38,6 +37,7 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	var (
 		file      *os.File
 		readBytes []byte
+		ok        bool
 	)
 
 	file, err = os.Open(privateKeyPath)
@@ -48,9 +48,13 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	if priKey, err = jwt.ParseRSAPrivateKeyFromPEM(readBytes); err != nil {
+	if v, rest, err := jwkRepo.DecodePEM(readBytes); err != nil {
 		log.Println(err.Error())
-		log.Fatal("Error in parsing private key")
+		log.Fatal("Error in decode private key")
+	} else if len(rest) > 0 {
+		log.Fatal("Rest in decode private key")
+	} else if priKey, ok = v.(*rsa.PrivateKey); !ok {
+		log.Fatal("Wrong type of private key")
 	}
 
 	file, err = os.Open(publicKeyPath)
@@ -61,9 +65,13 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 	if err != nil {
 		return nil, nil, err
 	}
-	if pubKey, err = jwt.ParseRSAPublicKeyFromPEM(readBytes); err != nil {
+	if v, rest, err := jwkRepo.DecodePEM(readBytes); err != nil {
 		log.Println(err.Error())
-		log.Fatal("Error in parsing public key")
+		log.Fatal("Error in decode public key")
+	} else if len(rest) > 0 {
+		log.Fatal("Rest in decode public key")
+	} else if pubKey, ok = v.(*rsa.PublicKey); !ok {
+		log.Fatal("Wrong type of public key")
 	}
 
 	return
