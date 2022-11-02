@@ -19,8 +19,8 @@ import (
 var (
 	publicKeyPath  = "ssl_key/rsa_public_key.pem"
 	privateKeyPath = "ssl_key/rsa_private_key.pem"
-	keyID          = "the-key-id"
-	issuer         = "<issuer-abc>"
+	keyID          = "the-key-id-0"
+	issuer         = "issuer-a"
 	priKey         *rsa.PrivateKey
 	pubKey         *rsa.PublicKey
 )
@@ -78,7 +78,7 @@ func getPublicAndPrivateKey() (pubKey *rsa.PublicKey, priKey *rsa.PrivateKey, er
 }
 
 // mainGenerateJWTandJWKS generates and prints generated JWT (as a string) and JWKS (as a json)
-func mainGenerateJWTandJWKS() {
+func main() {
 	var (
 		err                        error
 		key                        jwkRepo.Key
@@ -86,7 +86,7 @@ func mainGenerateJWTandJWKS() {
 
 		iat   = time.Now().Unix()
 		exp   = time.Date(2032, 12, 30, 6, 6, 6, 6, time.UTC).Unix()
-		email = "chenbochuan@pingcap.com"
+		email = "user@pingcap.com"
 	)
 
 	// 1. generate and sign JWT
@@ -113,8 +113,8 @@ func mainGenerateJWTandJWKS() {
 		value interface{}
 	}{
 		{jwsRepo.AlgorithmKey, jwaRepo.RS256},
-		{jwsRepo.KeyIDKey, keyID},
 		{jwsRepo.TypeKey, "JWT"},
+		{jwsRepo.KeyIDKey, keyID},
 	}
 	for _, h := range headers {
 		if err = header.Set(h.name, h.value); err != nil {
@@ -150,7 +150,9 @@ func mainGenerateJWTandJWKS() {
 		}
 	}
 	jwks := jwkRepo.NewSet()
-	jwks.AddKey(key)
+	if err := jwks.AddKey(key); err != nil {
+		log.Fatal("Error when jwks.AddKey")
+	}
 	if rawJSON, err = json.MarshalIndent(jwks, "", "  "); err != nil {
 		log.Fatal("Error when marshaler json")
 	}
@@ -165,8 +167,8 @@ func mainGenerateJWTandJWKS() {
 	}
 }
 
-// main checks the JWT using the JWKS from local files
-func main() {
+// CheckJWT checks the JWT using the JWKS from local files
+func CheckJWT() {
 	var (
 		rawJWT      []byte
 		err         error
